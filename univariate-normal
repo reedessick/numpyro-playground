@@ -1,0 +1,108 @@
+#!/usr/bin/env python
+
+"""a simple script in which I try to infer the parameters of a normal distribution from observations
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+from jax import random
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.infer import (MCMC, NUTS)
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+import numpy as np
+
+#-------------------------------------------------
+
+def model(observed=0.0, sigma=None):
+    if sigma is None:
+        sigma = numpyro.sample("sigma", dist.Exponential(1.0))
+    mu = numpyro.sample("mu", dist.Normal(0.0, 10.0))
+    numpyro.sample("obs", dist.Normal(mu, sigma), obs=observed)
+
+#-------------------------------------------------
+
+# define true parameters and number of observations
+true_mu = 10.0
+true_sigma = 5.0
+
+num_obs = 1000
+
+obs = np.random.normal(true_mu, true_sigma, size=num_obs)
+
+est_mu = np.mean(obs)
+est_sigma = ( np.sum((obs-est_mu)**2) / (num_obs-1) )**0.5
+
+# instantiate key for random number generator
+rng_key = random.PRNGKey(0)
+rng_key, rng_key_ = random.split(rng_key)
+
+# run NUTs sampler
+num_samples = 1000
+num_warmup = 100
+
+kernel = NUTS(model)
+mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+#mcmc.run(rng_key_, sigma=true_sigma, observed=observed)
+mcmc.run(rng_key_, observed=obs)
+mcmc.print_summary()
+samples = mcmc.get_samples()
+
+# plot samples
+for key, truth, est in [
+        ('mu', true_mu, est_mu),
+        ('sigma', true_sigma, est_sigma),
+    ]:
+    fig = plt.figure()
+    ax = plt.subplot(2,1,1)
+    AX = plt.subplot(2,1,2)
+
+    samp = samples[key]
+
+    ax.plot(samp, np.arange(num_samples), marker='.', linestyle='none')
+
+    AX.hist(samp, bins=max(10, int(num_samples**0.5)), histtype='stepfilled', density=True)
+    xlim = AX.get_xlim()
+
+    plt.setp(ax.get_xticklabels(), visible=False)
+    AX.set_xlabel(key)
+
+    ax.set_ylabel('sample')
+    plt.setp(AX.get_yticklabels(), visible=False)
+
+    ax.set_ylim(ymin=-1, ymax=num_samples)
+    ax.set_xlim(AX.get_xlim())
+
+    plt.subplots_adjust(
+        left=0.10,
+        right=0.95,
+        top=0.95,
+        bottom=0.10,
+        hspace=0.05,
+    )
+
+    for a in [ax, AX]:
+        a.tick_params(
+            left=True,
+            right=True,
+            top=True,
+            bottom=True,
+            direction='in',
+            which='both',
+        )
+
+        ylim = a.get_ylim()
+        a.plot([est]*2, ylim, color='k', alpha=0.5, linestyle='dashed')
+        a.plot([truth]*2, ylim, color='k', alpha=0.5, linestyle='solid')
+        a.set_ylim(ylim)
+
+    figname = __file__+'-%s.png' % key
+    print('saving: '+figname)
+    fig.savefig(figname)
+    plt.close(fig)
