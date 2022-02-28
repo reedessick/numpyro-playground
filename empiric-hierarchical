@@ -29,4 +29,20 @@ a model in which the observed data come from a different distribution that is no
     * the thought is that one can iterate and call "numpyro.factor" to add factors to the loglikelihood
     * this would mean something like an importance sampling sum over calls to logprob() for the prior object
     * means that the object's logprob has to play nicely with jax.numpy ndarrays (and that logpdraw is a jax.numpy.ndarray?)
+
+
+Ok, so let's try to replicate the analytic-hierarchical example but with empirically estimated single-event evidences
+this means that we will not actually sample in the single-event parameters. We will only sample in the population parameters
+  - we need to define the single-event evidence given the observed data as a function of the single-event prior
+  - we can then
+    * sample the single-event prior from the hyperprior
+    * iterate over events
+      - compute the evidence for that event given the single-event prior
+      - add this to the the potential function with call to numpyro.factor
+  - this should produce hyperposterior distributions for mu_pop and sigma_pop that are equivalent to what we get from the analytic model
+    * may want to simulate data, write it to disk, and then run both analytic and empiric models over it
+      - this would allow me to directly compare hyperposteriors for exactly the same input data
+      - I'll probably need to do this to convince myself that I've understood how to implement the the likelihood correctly and that everything is working "as desired"
+
+When I have a simple model up-and-running, consider expanding this to include things like selection effects, etc.
 ''')
