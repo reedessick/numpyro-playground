@@ -1,0 +1,29 @@
+#!/usr/bin/env python
+
+"""a playground script where I try to sample from a hierarchical model
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+from jax import random
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.infer import (MCMC, NUTS)
+
+import numpy as np
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+import corner
+
+#-------------------------------------------------
+
+raise NotImplementedError('''\
+Then, when you're comfortable with that, try a model in which the observed data come from a different distribution that is not analytically known
+    --> something like an observed set of (weighed) PE samples?
+    --> Maya thinks using numpyro.factor might work, but I'm not sure how...
+''')

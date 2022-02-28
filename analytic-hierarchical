@@ -14,6 +14,10 @@ from numpyro.infer import (MCMC, NUTS)
 
 import numpy as np
 
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
 import corner
 
 #-------------------------------------------------
@@ -25,13 +29,14 @@ def analytic_model(observed, event_index, num_events, num_obs):
     """a hierarchical model
     """
     mu_pop = numpyro.sample("mu_pop", dist.Normal(0, 10))
-    sigma_pop = numpyro.sample("sigma_pop", dist.Exponential(1.0))
+    sigma_pop = numpyro.sample("sigma_pop", dist.Exponential(0.1))
 
     with numpyro.plate('event_mus', num_events):
         mu = numpyro.sample('mu', dist.Normal(mu_pop, sigma_pop))
     mu = mu[index] ### take the means from the plate and put them in the right format to comare to observed
     sigma = 1.0 ### assume unit variance for event-level measurement error
-    with numpyro.plate("data", num_obs):
+
+    with numpyro.plate("data", num_events*num_obs):
         numpyro.sample("obs", dist.Normal(mu, sigma), obs=observed)
 
 #------------------------
@@ -42,7 +47,7 @@ true_sigma_pop = 1.0
 num_events = 10
 true_mus = np.random.normal(true_mu_pop, true_sigma_pop, size=num_events)
 
-num_obs = 100
+num_obs = 1000
 obs = np.ravel(np.array([np.random.normal(mu, 1.0, size=num_obs) for mu in true_mus]))
 index = np.ravel(np.array([np.ones(num_obs, dtype=int)*i for i in range(num_events)]))
 
@@ -50,8 +55,8 @@ index = np.ravel(np.array([np.ones(num_obs, dtype=int)*i for i in range(num_even
 rng_key = random.PRNGKey(0)
 
 # run NUTs sampler
-num_samples = 1000
-num_warmup = 100
+num_samples = 10000
+num_warmup = 1000
 
 kernel = NUTS(analytic_model)
 mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
@@ -65,12 +70,33 @@ mcmc.run(
 mcmc.print_summary()
 samples = mcmc.get_samples()
 
-raise NotImplementedError
+# plot
+data = []
+truth = []
+labels = []
 
-#-------------------------------------------------
+for i in range(num_events):
+    data.append(samples['mu'][:,i])
+    truth.append(true_mus[i])
+    labels.append('$\mu_%d$'%i)
 
-raise NotImplementedError('''\
-Then, when you're comfortable with that, try a model in which the observed data come from a different distribution that is not analytically known
-    --> something like an observed set of (weighed) PE samples?
-    --> Maya thinks using numpyro.factor might work, but I'm not sure how...
-''')
+data.append(samples['mu_pop'])
+truth.append(true_mu_pop)
+labels.append('$\mu_\mathrm{pop}$')
+
+data.append(samples['sigma_pop'])
+truth.append(true_sigma_pop)
+labels.append('$\sigma_\mathrm{pop}$')
+
+data = np.transpose(data) ### (num_samples, num_dim)
+
+fig = corner.corner(
+    data,
+    truths=truth,
+    labels=labels,
+)
+
+figname = __file__+'.png'
+print('saving : '+figname)
+fig.savefig(figname)
+plt.close(fig)
