@@ -12,10 +12,65 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import (MCMC, NUTS)
 
+import numpy as np
+
+import corner
+
+#-------------------------------------------------
+
+### sample from a hierarchical model in which all the priors and distributions of parameters
+### are modeled by analytic functions from numpyro.distributions
+
+def analytic_model(observed, event_index, num_events, num_obs):
+    """a hierarchical model
+    """
+    mu_pop = numpyro.sample("mu_pop", dist.Normal(0, 10))
+    sigma_pop = numpyro.sample("sigma_pop", dist.Exponential(1.0))
+
+    with numpyro.plate('event_mus', num_events):
+        mu = numpyro.sample('mu', dist.Normal(mu_pop, sigma_pop))
+    mu = mu[index] ### take the means from the plate and put them in the right format to comare to observed
+    sigma = 1.0 ### assume unit variance for event-level measurement error
+    with numpyro.plate("data", num_obs):
+        numpyro.sample("obs", dist.Normal(mu, sigma), obs=observed)
+
+#------------------------
+
+true_mu_pop = 0.0
+true_sigma_pop = 1.0
+
+num_events = 10
+true_mus = np.random.normal(true_mu_pop, true_sigma_pop, size=num_events)
+
+num_obs = 100
+obs = np.ravel(np.array([np.random.normal(mu, 1.0, size=num_obs) for mu in true_mus]))
+index = np.ravel(np.array([np.ones(num_obs, dtype=int)*i for i in range(num_events)]))
+
+# instantiate key for random number generator
+rng_key = random.PRNGKey(0)
+
+# run NUTs sampler
+num_samples = 1000
+num_warmup = 100
+
+kernel = NUTS(analytic_model)
+mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+mcmc.run(
+    rng_key,
+    obs,
+    index,
+    num_events,
+    num_obs,
+)
+mcmc.print_summary()
+samples = mcmc.get_samples()
+
+raise NotImplementedError
+
 #-------------------------------------------------
 
 raise NotImplementedError('''\
-sample from a hierarchical model in which all the priors and distributions of parameters are modeled by analytic functions from numpyro.distributions
-
-Then, when you're comfortable with that, try a model in which the observed data come from a different distribution that is not analytically known --> something like an observed set of (weighed) PE samples?
+Then, when you're comfortable with that, try a model in which the observed data come from a different distribution that is not analytically known
+    --> something like an observed set of (weighed) PE samples?
+    --> Maya thinks using numpyro.factor might work, but I'm not sure how...
 ''')
