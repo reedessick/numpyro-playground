@@ -96,8 +96,8 @@ def empiric_factor(data):
 print('generating data')
 
 # define number of events, number of likelihood samples
-num_events = 10
-num_observations = 10000 ### for empiric evidence estimation
+num_events = 50
+num_observations = 1000 ### for empiric evidence estimation
 
 # define true population hyperparameters 
 true_mu_pop = 1.0
@@ -125,8 +125,8 @@ samples = dict()
 
 for name, data, model, kwargs in [
         ('analytic', mle_est, analytic, dict(sigma=single_event_sigma)),
-        ('analytic_factor', mle_est, analytic_factor, dict(sigma=single_event_sigma)),
-        ('empiric_factor', like_samples, empiric_factor, dict()),
+        ('analytic with factor', mle_est, analytic_factor, dict(sigma=single_event_sigma)),
+        ('empiric with factor', like_samples, empiric_factor, dict()),
     ]:
     print('running : '+name)
 
@@ -147,8 +147,8 @@ truths = [true_mu_pop, true_sigma_pop]
 
 for i, (name, color) in enumerate([
         ('analytic', 'k'),
-        ('analytic_factor', 'orange'),
-        ('empiric_factor', 'r'),
+        ('analytic with factor', 'orange'),
+        ('empiric with factor', 'r'),
     ]):
 
     data = np.transpose([samples[name]['mu_pop'], samples[name]['sigma_pop']])
@@ -161,7 +161,7 @@ for i, (name, color) in enumerate([
         fig=fig,
     )
 
-    fig.text(0.90, 0.90 - 0.05*i, name, color=color, ha='right', va='top', fontsize=14)
+    fig.text(0.90, 0.90 - 0.05*i, name, color=color, ha='right', va='top', fontsize=12)
 
 figname = __file__ + '.png'
 print('saving : '+figname)
