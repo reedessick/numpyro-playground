@@ -25,31 +25,57 @@ import corner
 ### sample from a hierarchical model in which all the priors and distributions of parameters
 ### are modeled by analytic functions from numpyro.distributions
 
-def analytic_model(observed, event_index, num_events, num_obs):
+#------------------------
+
+### DEFINE MODEL
+
+def analytic_model(observed, event_index, num_events, num_obs, sigma_event=1.0):
     """a hierarchical model
     """
+    # draw hyperparameters from hyperprior
     mu_pop = numpyro.sample("mu_pop", dist.Normal(0, 10))
     sigma_pop = numpyro.sample("sigma_pop", dist.Exponential(0.1))
 
-    with numpyro.plate('event_mus', num_events):
+    # draw single-event params from population model
+    with numpyro.plate('event_mus', num_events): ### draws num_events samples for each param listed here
         mu = numpyro.sample('mu', dist.Normal(mu_pop, sigma_pop))
     mu = mu[index] ### take the means from the plate and put them in the right format to comare to observed
-    sigma = 1.0 ### assume unit variance for event-level measurement error
+    sigma = sigma_event ### assume unit variance for event-level measurement error
 
-    with numpyro.plate("data", num_events*num_obs):
-        numpyro.sample("obs", dist.Normal(mu, sigma), obs=observed)
+    # now compare observed values to model of single-event priors
+
+    # I'm not sure why one would use a "plate" here, but that's what was done in the tutorial
+    # https://num.pyro.ai/en/latest/tutorials/bayesian_hierarchical_linear_regression.html
+#    with numpyro.plate("data", num_events*num_obs):
+#        numpyro.sample("obs", dist.Normal(mu, sigma), obs=observed)
+
+    # this seems to work just as well without using a "plate"
+    numpyro.sample("obs", dist.Normal(mu, sigma), obs=observed)
 
 #------------------------
+
+### SIMULATE DATA
 
 true_mu_pop = 0.0
 true_sigma_pop = 1.0
 
 num_events = 10
 true_mus = np.random.normal(true_mu_pop, true_sigma_pop, size=num_events)
+true_sigma_event = 1.0
 
 num_obs = 1000
-obs = np.ravel(np.array([np.random.normal(mu, 1.0, size=num_obs) for mu in true_mus]))
+obs = np.array([np.random.normal(mu, 1.0, size=num_obs) for mu in true_mus])
+est = [np.mean(_) for _ in obs]    # point estimates for single-event params
+est += [np.mean(est), np.std(est)] # point estimate for population params
+
+sigma_est = true_sigma_event / num_obs**0.5 ### uncertainty for point estimate of single-event params
+
+obs = np.ravel(obs)
 index = np.ravel(np.array([np.ones(num_obs, dtype=int)*i for i in range(num_events)]))
+
+#------------------------
+
+### RUN SAMPLER
 
 # instantiate key for random number generator
 rng_key = random.PRNGKey(0)
@@ -66,11 +92,15 @@ mcmc.run(
     index,
     num_events,
     num_obs,
+    sigma_event=true_sigma_event,
 )
 mcmc.print_summary()
 samples = mcmc.get_samples()
 
-# plot
+#------------------------
+
+### PLOT SAMPLES
+
 data = []
 truth = []
 labels = []
@@ -90,11 +120,30 @@ labels.append('$\sigma_\mathrm{pop}$')
 
 data = np.transpose(data) ### (num_samples, num_dim)
 
+# plot the actual data
 fig = corner.corner(
     data,
     truths=truth,
     labels=labels,
+    hist_kwargs=dict(density=True),
 )
+
+# plot the estimates of single-event parameters
+axes = fig.axes
+num_dim = num_events + 2
+for i in range(num_dim): ### only do this for single-event parameters
+    ax = axes[(num_dim + 1)*i]
+#    ax = plt.subplot(num_dim, num_dim, (num_dim + 1)*i + 1)
+
+    ylim = ax.get_ylim()
+    ax.plot([est[i]]*2, ylim, color='r')
+    ax.set_ylim(ylim)
+
+    if i < num_events: ### plot Gaussian distrib based on point estimate for single-event params
+        xlim = ax.get_xlim()
+        x = np.linspace(*xlim, 1001)
+        ax.plot(x, np.exp(-0.5*(x-est[i])**2/sigma_est**2) / (2*np.pi*sigma_est**2)**0.5, color='r')
+        ax.set_xlim(xlim)
 
 figname = __file__+'.png'
 print('saving : '+figname)
