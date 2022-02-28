@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""a playground script where I try to sample from a hierarchical model
+"""a playground script where I try to sample from a hierarchical model with analytic probability models
 """
 __author__ = "Reed Essick (reed.essick@gmail.com)"
 

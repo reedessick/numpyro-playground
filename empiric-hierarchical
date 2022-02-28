@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""a playground script where I try to sample from a hierarchical model
+"""a playground script where I try to sample from a hierarchical model with empirically estimates single-event evidences
 """
 __author__ = "Reed Essick (reed.essick@gmail.com)"
 
@@ -23,7 +23,10 @@ import corner
 #-------------------------------------------------
 
 raise NotImplementedError('''\
-Then, when you're comfortable with that, try a model in which the observed data come from a different distribution that is not analytically known
-    --> something like an observed set of (weighed) PE samples?
-    --> Maya thinks using numpyro.factor might work, but I'm not sure how...
+a model in which the observed data come from a different distribution that is not analytically known
+  - something like an observed set of (weighed) PE samples?
+  - Maya thinks using numpyro.factor might work, but I'm not sure how...
+    * the thought is that one can iterate and call "numpyro.factor" to add factors to the loglikelihood
+    * this would mean something like an importance sampling sum over calls to logprob() for the prior object
+    * means that the object's logprob has to play nicely with jax.numpy ndarrays (and that logpdraw is a jax.numpy.ndarray?)
 ''')
