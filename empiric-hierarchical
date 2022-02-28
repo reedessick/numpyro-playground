@@ -7,6 +7,7 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 #-------------------------------------------------
 
 from jax import random
+from jax import numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
@@ -22,27 +23,147 @@ import corner
 
 #-------------------------------------------------
 
-raise NotImplementedError('''\
-a model in which the observed data come from a different distribution that is not analytically known
-  - something like an observed set of (weighed) PE samples?
-  - Maya thinks using numpyro.factor might work, but I'm not sure how...
-    * the thought is that one can iterate and call "numpyro.factor" to add factors to the loglikelihood
-    * this would mean something like an importance sampling sum over calls to logprob() for the prior object
-    * means that the object's logprob has to play nicely with jax.numpy ndarrays (and that logpdraw is a jax.numpy.ndarray?)
+def sample_hyperparams():
+    """sample hyperparameters from hyperprior
+    """
+    mu_pop = numpyro.sample("mu_pop", dist.Normal(0, 10))
+    sigma_pop = numpyro.sample("sigma_pop", dist.Exponential(0.1))
+    return mu_pop, sigma_pop
 
+#-------------------------------------------------
 
-Ok, so let's try to replicate the analytic-hierarchical example but with empirically estimated single-event evidences
-this means that we will not actually sample in the single-event parameters. We will only sample in the population parameters
-  - we need to define the single-event evidence given the observed data as a function of the single-event prior
-  - we can then
-    * sample the single-event prior from the hyperprior
-    * iterate over events
-      - compute the evidence for that event given the single-event prior
-      - add this to the the potential function with call to numpyro.factor
-  - this should produce hyperposterior distributions for mu_pop and sigma_pop that are equivalent to what we get from the analytic model
-    * may want to simulate data, write it to disk, and then run both analytic and empiric models over it
-      - this would allow me to directly compare hyperposteriors for exactly the same input data
-      - I'll probably need to do this to convince myself that I've understood how to implement the the likelihood correctly and that everything is working "as desired"
+DEFAULT_SINGLE_EVENT_SIGMA = 1.0
 
-When I have a simple model up-and-running, consider expanding this to include things like selection effects, etc.
-''')
+#------------------------
+
+def analytic(data, sigma=DEFAULT_SINGLE_EVENT_SIGMA):
+    """a model in which we compute the single-event evidences analytically
+    expect data to be shape : (num_event,)
+    """
+    # hyperparameters from hyperprior
+    mu_pop, sigma_pop = sample_hyperparams()
+
+    # compute single-event evidences
+    sigma_combined = (sigma_pop**2 + sigma**2)**0.5
+    numpyro.sample("obs", dist.Normal(mu_pop, sigma_combined), obs=data)
+
+#------------------------
+
+def analytic_factor(data, sigma=DEFAULT_SINGLE_EVENT_SIGMA):
+    """a model in which we compute the single-event evidence analytically but add it to the potential via numpyro.factor
+    expect data to be shape : (num_event,)
+    """
+    # hyperparameters from hyperprior
+    mu_pop, sigma_pop = sample_hyperparams()
+
+    # compute single-event evidences
+    var_combined = sigma_pop**2 + sigma**2
+
+    num_data = len(data)
+    for i in range(num_data):
+        ### compute this first by hand
+        logprob = -0.5*(data[i] - mu_pop)**2/var_combined - 0.5*jnp.log(2*jnp.pi*var_combined)
+
+        ### now add to potential function with numpyro.factor
+        numpyro.factor('single_event_%d'%i, logprob)
+
+#------------------------
+
+def empiric_factor(data):
+    """a model in which we marginalize over the uncertainty in single-event parameters with a representation of the single-event likelihood composed of a set of samples
+    expect data to be shape : (num_event, num_likelihood_samples)
+    """
+    # hyperparameters from hyperprior
+    mu_pop, sigma_pop = sample_hyperparams()
+
+    # compute single-event evidences
+    num_data, num_obs = jnp.shape(data)
+    for i in range(num_data):
+        ### evaluate prior at all likelihood samples
+        logprob = -0.5*(data[i] - mu_pop)**2 / sigma_pop**2 - 0.5*jnp.log(2*jnp.pi) - jnp.log(sigma_pop)
+
+        ### now average (estimate evidence via monte carlo sum)
+        m = jnp.max(logprob)
+        logprob = m + jnp.log(jnp.sum(jnp.exp(logprob - m))) - jnp.log(num_obs)
+
+        ### add to potential function via numpyro.factor
+        numpyro.factor('single_event_%d'%i, logprob)
+
+#-------------------------------------------------
+
+### generate data
+
+print('generating data')
+
+# define number of events, number of likelihood samples
+num_events = 10
+num_observations = 10000 ### for empiric evidence estimation
+
+# define true population hyperparameters 
+true_mu_pop = 1.0
+true_sigma_pop = 5.0
+
+# draw single-event parameters
+true_mus = np.random.normal(true_mu_pop, true_sigma_pop, size=num_events)
+
+# draw MLE estimates
+single_event_sigma = 1.0
+mle_est = true_mus + np.random.normal(0.0, single_event_sigma, size=num_events)
+
+# now sample from the corresponding likelihoods
+like_samples = np.empty((num_events, num_observations), dtype=float)
+for i in range(num_events):
+    like_samples[i,:] = np.random.normal(mle_est[i], single_event_sigma, size=num_observations)
+
+#------------------------
+
+### define samplers and run
+
+num_samples = 10000
+num_warmup = 100
+samples = dict()
+
+for name, data, model, kwargs in [
+        ('analytic', mle_est, analytic, dict(sigma=single_event_sigma)),
+        ('analytic_factor', mle_est, analytic_factor, dict(sigma=single_event_sigma)),
+        ('empiric_factor', like_samples, empiric_factor, dict()),
+    ]:
+    print('running : '+name)
+
+    key = random.PRNGKey(0)
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+    mcmc.run(key, data, **kwargs)
+    mcmc.print_summary()
+    samples[name] = mcmc.get_samples()
+
+#------------------------
+
+### plot hyperposteriors
+
+fig = None
+labels = ['$\mu_\mathrm{pop}$', '$\sigma_\mathrm{pop}$']
+truths = [true_mu_pop, true_sigma_pop]
+
+for i, (name, color) in enumerate([
+        ('analytic', 'k'),
+        ('analytic_factor', 'orange'),
+        ('empiric_factor', 'r'),
+    ]):
+
+    data = np.transpose([samples[name]['mu_pop'], samples[name]['sigma_pop']])
+
+    fig = corner.corner(
+        data,
+        labels=labels,
+        truths=truths,
+        color=color,
+        fig=fig,
+    )
+
+    fig.text(0.90, 0.90 - 0.05*i, name, color=color, ha='right', va='top', fontsize=14)
+
+figname = __file__ + '.png'
+print('saving : '+figname)
+fig.savefig(figname)
+plt.close(fig)
